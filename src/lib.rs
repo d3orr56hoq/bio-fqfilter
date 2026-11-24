@@ -47,6 +47,22 @@ impl Default for Config {
     }
 }
 
+/// Parse the `-q` threshold.
+///
+/// `NaN` is rejected because `mean < NaN` is always false, which would keep
+/// every read and silently disable filtering. Infinities are accepted: they
+/// are valid `f64` values and keep the usual comparison (`-q inf` drops
+/// every finite-scoring read).
+pub fn parse_min_mean(value: &str) -> Result<f64, String> {
+    let min_mean: f64 = value
+        .parse()
+        .map_err(|_| format!("invalid -q value: {value}"))?;
+    if min_mean.is_nan() {
+        return Err(format!("invalid -q value: {value}"));
+    }
+    Ok(min_mean)
+}
+
 /// Scores one record against `cfg`.
 ///
 /// Checks are ordered so that the cheapest rejection (length) wins and
@@ -97,12 +113,18 @@ mod tests {
 
     #[test]
     fn keeps_high_quality_record() {
-        assert_eq!(classify(&record("ACGT", "IIII"), &Config::default()), Decision::Keep);
+        assert_eq!(
+            classify(&record("ACGT", "IIII"), &Config::default()),
+            Decision::Keep
+        );
     }
 
     #[test]
     fn drops_low_quality_record() {
-        let cfg = Config { min_mean: 20.0, min_length: 1 };
+        let cfg = Config {
+            min_mean: 20.0,
+            min_length: 1,
+        };
         assert_eq!(
             classify(&record("ACGT", "!!!!"), &cfg),
             Decision::Drop(Reason::LowQuality)
@@ -111,7 +133,41 @@ mod tests {
 
     #[test]
     fn length_check_runs_first() {
-        let cfg = Config { min_mean: 0.0, min_length: 4 };
-        assert_eq!(classify(&record("AC", "!!"), &cfg), Decision::Drop(Reason::TooShort));
+        let cfg = Config {
+            min_mean: 0.0,
+            min_length: 4,
+        };
+        assert_eq!(
+            classify(&record("AC", "!!"), &cfg),
+            Decision::Drop(Reason::TooShort)
+        );
+    }
+
+    #[test]
+    fn parse_min_mean_rejects_nan() {
+        for value in ["nan", "NaN", "-nan", "+nan"] {
+            let err = parse_min_mean(value).unwrap_err();
+            assert!(err.contains(value), "{err}");
+        }
+    }
+
+    #[test]
+    fn parse_min_mean_keeps_finite_and_infinite_values() {
+        assert_eq!(parse_min_mean("20").unwrap(), 20.0);
+        assert_eq!(parse_min_mean("0").unwrap(), 0.0);
+        assert_eq!(parse_min_mean("-1.5").unwrap(), -1.5);
+        assert!(
+            parse_min_mean("inf").unwrap().is_infinite()
+                && parse_min_mean("inf").unwrap().is_sign_positive()
+        );
+        assert!(
+            parse_min_mean("+inf").unwrap().is_infinite()
+                && parse_min_mean("+inf").unwrap().is_sign_positive()
+        );
+        assert!(
+            parse_min_mean("-inf").unwrap().is_infinite()
+                && parse_min_mean("-inf").unwrap().is_sign_negative()
+        );
+        assert!(parse_min_mean("notanumber").is_err());
     }
 }

@@ -4,7 +4,7 @@ use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::process::ExitCode;
 
 use fqfilter::window::trim_ends;
-use fqfilter::{classify, fastq, Config, Decision, Reader, Stats};
+use fqfilter::{classify, fastq, parse_min_mean, Config, Decision, Reader, Stats};
 
 const USAGE: &str = "\
 usage: fqfilter [-q MIN_MEAN] [-l MIN_LENGTH] [-w WINDOW] [INPUT]
@@ -31,9 +31,7 @@ fn parse_args() -> Result<(Config, Option<usize>, Option<String>), String> {
             "-h" | "--help" => return Err(USAGE.to_string()),
             "-q" => {
                 let value = args.next().ok_or("-q needs a value")?;
-                cfg.min_mean = value
-                    .parse()
-                    .map_err(|_| format!("invalid -q value: {value}"))?;
+                cfg.min_mean = parse_min_mean(&value)?;
             }
             "-l" => {
                 let value = args.next().ok_or("-l needs a value")?;
